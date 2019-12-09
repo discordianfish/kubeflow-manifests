@@ -22,6 +22,7 @@ spec:
     metadata:
       annotations:
         prometheus.io/scrape: "true"
+        prometheus.io/scheme: "https"
       labels:
         app.kubernetes.io/instance: seldon-core-operator
         app.kubernetes.io/name: seldon-core-operator
