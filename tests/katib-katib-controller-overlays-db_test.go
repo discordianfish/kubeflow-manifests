@@ -13,86 +13,149 @@ import (
 	"testing"
 )
 
-func writeKatibControllerOverlaysApplication(th *KustTestHarness) {
-	th.writeF("/manifests/katib/katib-controller/overlays/application/application.yaml", `
-apiVersion: app.k8s.io/v1beta1
-kind: Application
+func writeKatibControllerOverlaysDb(th *KustTestHarness) {
+	th.writeF("/manifests/katib/katib-controller/overlays/db/katib-mysql-deployment.yaml", `
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: katib-controller
+  name: katib-mysql
+  labels:
+    app: katib
+    component: mysql
 spec:
-  addOwnerRef: true
-  componentKinds:
-  - group: core
-    kind: Service
-  - group: apps
-    kind: Deployment
-  - group: core
-    kind: Secret
-  - group: core
-    kind: ServiceAccount
-  - group: kubeflow.org
-    kind: Experiment
-  - group: kubeflow.org
-    kind: Suggestion
-  - group: kubeflow.org
-    kind: Trial
-  descriptor:
-    description: Katib is a service for hyperparameter tuning and neural architecture
-      search.
-    keywords:
-    - katib
-    - katib-controller
-    - hyperparameter tuning
-    links:
-    - description: About
-      url: https://github.com/kubeflow/katib
-    maintainers:
-    - email: gaoce@caicloud.io
-      name: Ce Gao
-    - email: johnugeo@cisco.com
-      name: Johnu George
-    - email: liuhougang6@126.com
-      name: Hougang Liu
-    - email: ricliu@google.com
-      name: Richard Liu
-    - email: yuji.oshima0x3fd@gmail.com
-      name: YujiOshima
-    owners:
-    - email: gaoce@caicloud.io
-      name: Ce Gao
-    - email: johnugeo@cisco.com
-      name: Johnu George
-    - email: liuhougang6@126.com
-      name: Hougang Liu
-    - email: ricliu@google.com
-      name: Richard Liu
-    - email: yuji.oshima0x3fd@gmail.com
-      name: YujiOshima
-    type: katib
-    version: v1alpha3
+  replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/component: katib
-      app.kubernetes.io/instance: katib-controller-0.8.0
-      app.kubernetes.io/managed-by: kfctl
-      app.kubernetes.io/name: katib-controller
-      app.kubernetes.io/part-of: kubeflow
-      app.kubernetes.io/version: 0.8.0
+      app: katib
+      component: mysql
+  template:
+    metadata:
+      name: katib-mysql
+      labels:
+        app: katib
+        component: mysql
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - name: katib-mysql
+        image: mysql:8
+        args:
+        - --datadir
+        - /var/lib/mysql/datadir
+        env:
+          - name: MYSQL_ROOT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: katib-mysql-secrets
+                key: MYSQL_ROOT_PASSWORD
+          - name: MYSQL_ALLOW_EMPTY_PASSWORD
+            value: "true"
+          - name: MYSQL_DATABASE
+            value: "katib"
+        ports:
+        - name: dbapi
+          containerPort: 3306
+        readinessProbe:
+          exec:
+            command:
+            - "/bin/bash"
+            - "-c"
+            - "mysql -D ${MYSQL_DATABASE} -u root -p${MYSQL_ROOT_PASSWORD} -e 'SELECT 1'"
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 1
+        livenessProbe:
+          exec:
+            command:
+            - "/bin/bash"
+            - "-c"
+            - "mysqladmin ping -u root -p${MYSQL_ROOT_PASSWORD}"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: katib-mysql
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: katib-mysql
+        persistentVolumeClaim:
+          claimName: katib-mysql
 `)
-	th.writeK("/manifests/katib/katib-controller/overlays/application", `
+	th.writeF("/manifests/katib/katib-controller/overlays/db/katib-mysql-pvc.yaml", `
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: katib-mysql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+`)
+	th.writeF("/manifests/katib/katib-controller/overlays/db/katib-mysql-secret.yaml", `
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: katib-mysql-secrets
+data:
+  MYSQL_ROOT_PASSWORD: dGVzdA== # "test"
+`)
+	th.writeF("/manifests/katib/katib-controller/overlays/db/katib-mysql-service.yaml", `
+apiVersion: v1
+kind: Service
+metadata:
+  name: katib-mysql
+  labels:
+    app: katib
+    component: mysql
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3306
+      protocol: TCP
+      name: dbapi
+  selector:
+    app: katib
+    component: mysql
+`)
+	th.writeF("/manifests/katib/katib-controller/overlays/db/katib-db-manager-deployment.yaml", `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: katib-db-manager
+spec:
+  template:
+    spec:
+      containers:
+      - name: katib-db-manager
+        env:
+          - name : DB_NAME
+            value: "mysql"
+          - name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: katib-mysql-secrets
+                key: MYSQL_ROOT_PASSWORD
+`)
+	th.writeK("/manifests/katib/katib-controller/overlays/db", `
 apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 bases:
 - ../../base
-commonLabels:
-  app.kubernetes.io/component: katib
-  app.kubernetes.io/instance: katib-controller-0.8.0
-  app.kubernetes.io/managed-by: kfctl
-  app.kubernetes.io/name: katib-controller
-  app.kubernetes.io/part-of: kubeflow
-  app.kubernetes.io/version: 0.8.0
-kind: Kustomization
 resources:
-- application.yaml
+- katib-mysql-deployment.yaml
+- katib-mysql-pvc.yaml
+- katib-mysql-secret.yaml
+- katib-mysql-service.yaml
+patchesStrategicMerge:
+- katib-db-manager-deployment.yaml
+images:
+- name: mysql
+  newTag: "8"
+  newName: mysql
 `)
 	th.writeF("/manifests/katib/katib-controller/base/katib-configmap.yaml", `
 apiVersion: v1
@@ -451,6 +514,8 @@ spec:
       labels:
         app: katib
         component: ui
+      annotations:
+        sidecar.istio.io/inject: "false"
     spec:
       containers:
       - name: katib-ui
@@ -617,9 +682,9 @@ configurations:
 `)
 }
 
-func TestKatibControllerOverlaysApplication(t *testing.T) {
-	th := NewKustTestHarness(t, "/manifests/katib/katib-controller/overlays/application")
-	writeKatibControllerOverlaysApplication(th)
+func TestKatibControllerOverlaysDb(t *testing.T) {
+	th := NewKustTestHarness(t, "/manifests/katib/katib-controller/overlays/db")
+	writeKatibControllerOverlaysDb(th)
 	m, err := th.makeKustTarget().MakeCustomizedResMap()
 	if err != nil {
 		t.Fatalf("Err: %v", err)
@@ -628,7 +693,7 @@ func TestKatibControllerOverlaysApplication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Err: %v", err)
 	}
-	targetPath := "../katib/katib-controller/overlays/application"
+	targetPath := "../katib/katib-controller/overlays/db"
 	fsys := fs.MakeRealFS()
 	lrc := loader.RestrictionRootOnly
 	_loader, loaderErr := loader.NewLoader(lrc, validators.MakeFakeValidator(), targetPath, fsys)
