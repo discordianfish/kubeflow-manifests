@@ -154,14 +154,17 @@ spec:
                  "--mysql_config_port=$(MYSQL_PORT)",
                  "--mysql_config_user=$(MYSQL_USER_NAME)",
                  "--mysql_config_password=$(MYSQL_ROOT_PASSWORD)"
-          ]`)
+          ]
+`)
 	th.writeF("/manifests/metadata/overlays/db/params.env", `
 MYSQL_DATABASE=metadb
 MYSQL_PORT=3306
-MYSQL_ALLOW_EMPTY_PASSWORD=true`)
+MYSQL_ALLOW_EMPTY_PASSWORD=true
+`)
 	th.writeF("/manifests/metadata/overlays/db/secrets.env", `
 MYSQL_USER_NAME=root
-MYSQL_ROOT_PASSWORD=test`)
+MYSQL_ROOT_PASSWORD=test
+`)
 	th.writeK("/manifests/metadata/overlays/db", `
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -196,7 +199,8 @@ vars:
     name: metadata-db
     apiVersion: v1
   fieldref:
-    fieldpath: metadata.name`)
+    fieldpath: metadata.name
+`)
 	th.writeF("/manifests/metadata/base/metadata-deployment.yaml", `
 apiVersion: apps/v1
 kind: Deployment
@@ -224,6 +228,17 @@ spec:
           containerPort: 8080
 
         readinessProbe:
+          httpGet:
+            path: /api/v1alpha1/artifact_types
+            port: backendapi
+            httpHeaders:
+            - name: ContentType
+              value: application/json
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          timeoutSeconds: 2
+
+        livenessProbe:
           httpGet:
             path: /api/v1alpha1/artifact_types
             port: backendapi
