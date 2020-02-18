@@ -107,6 +107,17 @@ spec:
           initialDelaySeconds: 3
           periodSeconds: 5
           timeoutSeconds: 2
+
+        livenessProbe:
+          httpGet:
+            path: /api/v1alpha1/artifact_types
+            port: backendapi
+            httpHeaders:
+            - name: ContentType
+              value: application/json
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          timeoutSeconds: 2
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -304,7 +315,8 @@ uiClusterDomain=cluster.local
 `)
 	th.writeF("/manifests/metadata/base/grpc-params.env", `
 METADATA_GRPC_SERVICE_HOST=metadata-grpc-service
-METADATA_GRPC_SERVICE_PORT=8080`)
+METADATA_GRPC_SERVICE_PORT=8080
+`)
 	th.writeK("/manifests/metadata/base", `
 namePrefix: metadata-
 apiVersion: kustomize.config.k8s.io/v1beta1
